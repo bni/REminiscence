@@ -44,7 +44,6 @@ PrfPlayer::PrfPlayer(Mixer *mix, FileSystem *fs, int mode)
 			return;
 		}
 	}
-	warning("no midi driver for mode %d", mode);
 }
 
 PrfPlayer::~PrfPlayer() {

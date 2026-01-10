@@ -1,0 +1,49 @@
+# REminiscence fork with CRT emulation shader
+
+![Screenshot](screenshot.png)
+
+## Credits
+Original [REminiscence](http://cyxdown.free.fr/reminiscence/) author Gregory Montoir.
+
+Delphine Software, makers of the 1992 game [Flashback](https://en.wikipedia.org/wiki/Flashback_(1992_video_game)).
+
+## Added features
+* CRT shader based on the one used in [TIC-80](https://github.com/nesbox/TIC-80)
+* Fullscreen by default.
+* Always preserving original aspect ratio.
+* 4x scale in windowed mode.
+* macOS app bundle.
+
+## Build dependencies
+* CMake > 3.19
+* SDL2
+* [SDL_gpu](https://github.com/grimfang4/sdl-gpu) (You have to build from source)
+* [libmodplug](http://modplug-xmms.sourceforge.net)
+* [stb_vorbis.c](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
+* [zlib](https://www.zlib.net)
+* [macdylibbundler](https://github.com/auriamg/macdylibbundler) (Only needed for building macOS app)
+
+Put data files from the original game in DATA/
+
+Use CMake to build the rs executable.
+
+`cmake -S . -B build -G Ninja`
+
+`cmake --build build`
+
+To build Flashback.app (optional):
+
+`./build_app.sh`
+
+## Assets/DATA
+Requires DATA files from the original game, either DOS (Recommended) or Amiga (Not tested).
+DOS files from GOG probably work. Filenames should be uppercase.
+
+Get Amiga MOD music files from here: [UnExoticA](https://www.exotica.org.uk/wiki/Flashback).
+Put files directly in the DATA/ folder. These should be in lowercase.
+
+## Run
+You can run the rs executable in the build directory
+`./rs`
+
+The Mac .app is standalone, with all dependencies inside the bundle.

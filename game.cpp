@@ -1845,6 +1845,9 @@ void Game::drawIcon(uint8_t iconNum, int16_t x, int16_t y, uint8_t colMask) {
 
 void Game::playSound(uint8_t num, uint8_t softVol) {
 	debug(DBG_GAME, "playSound num:%d volume:%d", num, softVol);
+	if (num == 59) { // We dont want the "hey" speech when Conrad almost falls down
+		return;
+	}
 	if (num < _res._numSfx) {
 		SoundFx *sfx = &_res._sfxList[num];
 		if (sfx->data) {

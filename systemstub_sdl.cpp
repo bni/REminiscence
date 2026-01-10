@@ -4,6 +4,7 @@
  */
 
 #include <SDL.h>
+#include <SDL_gpu.h>
 #include <sys/time.h>
 #include "scaler.h"
 #include "screenshot.h"
@@ -17,7 +18,7 @@ static const char *kIconBmp = "icon.bmp";
 static const int kJoystickIndex = 0;
 static const int kJoystickCommitValue = 3200;
 
-static const uint32_t kPixelFormat = SDL_PIXELFORMAT_RGB888;
+static const uint32_t kPixelFormat = SDL_PIXELFORMAT_ABGR8888;
 
 ScalerParameters ScalerParameters::defaults() {
 	ScalerParameters params;
@@ -29,8 +30,10 @@ ScalerParameters ScalerParameters::defaults() {
 
 struct SystemStub_SDL : SystemStub {
 	SDL_Window *_window;
-	SDL_Renderer *_renderer;
-	SDL_Texture *_texture;
+    GPU_Target *_renderer;
+    GPU_Image* _texture;
+    uint32_t _shader;
+    GPU_ShaderBlock _block;
 	int _texW, _texH;
 	SDL_Rect _texRect;
 	SDL_GameController *_controller;
@@ -47,14 +50,6 @@ struct SystemStub_SDL : SystemStub {
 	bool _fadeOnUpdateScreen;
 	void (*_audioCbProc)(void *, int16_t *, int);
 	void *_audioCbData;
-	ScalerType _scalerType;
-	int _scaleFactor;
-	const Scaler *_scaler;
-	void *_scalerSo;
-	int _widescreenMode;
-	SDL_Texture *_widescreenTexture;
-	int _wideMargin;
-	bool _enableWidescreen;
 
 	virtual ~SystemStub_SDL() {}
 	virtual void init(const char *title, int w, int h, bool fullscreen, int widescreenMode, bool maximized, const ScalerParameters *scalerParameters);
@@ -103,7 +98,9 @@ SystemStub *SystemStub_SDL_create() {
 
 void SystemStub_SDL::init(const char *title, int w, int h, bool fullscreen, int widescreenMode, bool maximized, const ScalerParameters *scalerParameters) {
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
-	SDL_ShowCursor(SDL_DISABLE);
+    if (fullscreen) {
+        SDL_ShowCursor(SDL_DISABLE);
+    }
 	_caption = title;
 	memset(&_pi, 0, sizeof(_pi));
 	_window = 0;
@@ -115,20 +112,9 @@ void SystemStub_SDL::init(const char *title, int w, int h, bool fullscreen, int 
 	_fullscreen = fullscreen;
 	_maximizeWindow = maximized;
 	_clearColor = SDL_MapRGB(_fmt, 0, 0, 0);
-	_scalerType = kScalerTypeInternal;
-	_scaleFactor = 1;
-	_scaler = 0;
-	_scalerSo = 0;
-	if (scalerParameters->name[0]) {
-		setScaler(scalerParameters);
-	}
 	memset(_rgbPalette, 0, sizeof(_rgbPalette));
 	memset(_darkPalette, 0, sizeof(_darkPalette));
 	_screenW = _screenH = 0;
-	_widescreenMode = widescreenMode;
-	_widescreenTexture = 0;
-	_wideMargin = 0;
-	_enableWidescreen = false;
 	setScreenSize(w, h);
 	_joystick = 0;
 	_controller = 0;
@@ -153,10 +139,6 @@ void SystemStub_SDL::destroy() {
 		SDL_FreeFormat(_fmt);
 		_fmt = 0;
 	}
-	if (_scalerSo) {
-		SDL_UnloadObject(_scalerSo);
-		_scalerSo = 0;
-	}
 	if (_controller) {
 		SDL_GameControllerClose(_controller);
 		_controller = 0;
@@ -169,7 +151,7 @@ void SystemStub_SDL::destroy() {
 }
 
 bool SystemStub_SDL::hasWidescreen() const {
-	return _widescreenMode != kWidescreenNone;
+	return false;
 }
 
 void SystemStub_SDL::setScreenSize(int w, int h) {
@@ -299,217 +281,24 @@ static void clearTexture(SDL_Texture *texture, int h, uint32_t color) {
 }
 
 void SystemStub_SDL::copyWidescreenLeft(int w, int h, const uint8_t *buf) {
-	assert(w >= _wideMargin);
-	uint32_t *rgb = (uint32_t *)malloc(w * h * sizeof(uint32_t));
-	if (rgb) {
-		if (buf) {
-			for (int i = 0; i < w * h; ++i) {
-				rgb[i] = _darkPalette[buf[i]];
-			}
-		} else {
-			const uint32_t color = _clearColor;
-			for (int i = 0; i < w * h; ++i) {
-				rgb[i] = color;
-			}
-		}
-		const int xOffset = w - _wideMargin;
-		SDL_Rect r;
-		r.x = 0;
-		r.y = 0;
-		r.w = _wideMargin;
-		r.h = h;
-		SDL_UpdateTexture(_widescreenTexture, &r, rgb + xOffset, w * sizeof(uint32_t));
-		free(rgb);
-	}
 }
 
 void SystemStub_SDL::copyWidescreenRight(int w, int h, const uint8_t *buf) {
-	assert(w >= _wideMargin);
-	uint32_t *rgb = (uint32_t *)malloc(w * h * sizeof(uint32_t));
-	if (rgb) {
-		if (buf) {
-			for (int i = 0; i < w * h; ++i) {
-				rgb[i] = _darkPalette[buf[i]];
-			}
-		} else {
-			const uint32_t color = _clearColor;
-			for (int i = 0; i < w * h; ++i) {
-				rgb[i] = color;
-			}
-		}
-		const int xOffset = 0;
-		SDL_Rect r;
-		r.x = _wideMargin + _screenW;
-		r.y = 0;
-		r.w = _wideMargin;
-		r.h = h;
-		SDL_UpdateTexture(_widescreenTexture, &r, rgb + xOffset, w * sizeof(uint32_t));
-		free(rgb);
-	}
 }
 
 void SystemStub_SDL::copyWidescreenMirror(int w, int h, const uint8_t *buf) {
-	assert(w >= _wideMargin);
-	uint32_t *rgb = (uint32_t *)malloc(w * h * sizeof(uint32_t));
-	if (rgb) {
-		for (int i = 0; i < w * h; ++i) {
-			rgb[i] = _darkPalette[buf[i]];
-		}
-		void *dst = 0;
-		int pitch = 0;
-		if (SDL_LockTexture(_widescreenTexture, 0, &dst, &pitch) == 0) {
-			assert((pitch & 3) == 0);
-			uint32_t *p = (uint32_t *)dst;
-			for (int y = 0; y < h; ++y) {
-				for (int x = 0; x < _wideMargin; ++x) {
-					// left side
-					const int xLeft = _wideMargin - 1 - x;
-					p[x] = rgb[y * w + xLeft];
-					// right side
-					const int xRight = w - 1 - x;
-					p[_wideMargin + _screenW + x] = rgb[y * w + xRight];
-				}
-				p += pitch / sizeof(uint32_t);
-			}
-			SDL_UnlockTexture(_widescreenTexture);
-		}
-		free(rgb);
-	}
-}
-
-static void blur_h(int radius, const uint32_t *src, int srcPitch, int w, int h, const SDL_PixelFormat *fmt, uint32_t *dst, int dstPitch) {
-
-	const int count = 2 * radius + 1;
-
-	for (int y = 0; y < h; ++y) {
-
-		uint32_t r = 0;
-		uint32_t g = 0;
-		uint32_t b = 0;
-
-		uint32_t color;
-
-		for (int x = -radius; x <= radius; ++x) {
-			color = src[MAX(x, 0)];
-			r += (color & fmt->Rmask) >> fmt->Rshift;
-			g += (color & fmt->Gmask) >> fmt->Gshift;
-			b += (color & fmt->Bmask) >> fmt->Bshift;
-		}
-		dst[0] = ((r / count) << fmt->Rshift) | ((g / count) << fmt->Gshift) | ((b / count) << fmt->Bshift);
-
-		for (int x = 1; x < w; ++x) {
-			color = src[MIN(x + radius, w - 1)];
-			r += (color & fmt->Rmask) >> fmt->Rshift;
-			g += (color & fmt->Gmask) >> fmt->Gshift;
-			b += (color & fmt->Bmask) >> fmt->Bshift;
-
-			color = src[MAX(x - radius - 1, 0)];
-			r -= (color & fmt->Rmask) >> fmt->Rshift;
-			g -= (color & fmt->Gmask) >> fmt->Gshift;
-			b -= (color & fmt->Bmask) >> fmt->Bshift;
-
-			dst[x] = ((r / count) << fmt->Rshift) | ((g / count) << fmt->Gshift) | ((b / count) << fmt->Bshift);
-		}
-
-		src += srcPitch;
-		dst += dstPitch;
-	}
-}
-
-static void blur_v(int radius, const uint32_t *src, int srcPitch, int w, int h, const SDL_PixelFormat *fmt, uint32_t *dst, int dstPitch) {
-
-	const int count = 2 * radius + 1;
-
-	for (int x = 0; x < w; ++x) {
-
-		uint32_t r = 0;
-		uint32_t g = 0;
-		uint32_t b = 0;
-
-		uint32_t color;
-
-		for (int y = -radius; y <= radius; ++y) {
-			color = src[MAX(y, 0) * srcPitch];
-			r += (color & fmt->Rmask) >> fmt->Rshift;
-			g += (color & fmt->Gmask) >> fmt->Gshift;
-			b += (color & fmt->Bmask) >> fmt->Bshift;
-		}
-		dst[0] = ((r / count) << fmt->Rshift) | ((g / count) << fmt->Gshift) | ((b / count) << fmt->Bshift);
-
-		for (int y = 1; y < h; ++y) {
-			color = src[MIN(y + radius, h - 1) * srcPitch];
-			r += (color & fmt->Rmask) >> fmt->Rshift;
-			g += (color & fmt->Gmask) >> fmt->Gshift;
-			b += (color & fmt->Bmask) >> fmt->Bshift;
-
-			color = src[MAX(y - radius - 1, 0) * srcPitch];
-			r -= (color & fmt->Rmask) >> fmt->Rshift;
-			g -= (color & fmt->Gmask) >> fmt->Gshift;
-			b -= (color & fmt->Bmask) >> fmt->Bshift;
-
-			dst[y * dstPitch] = ((r / count) << fmt->Rshift) | ((g / count) << fmt->Gshift) | ((b / count) << fmt->Bshift);
-		}
-
-		++src;
-		++dst;
-	}
 }
 
 void SystemStub_SDL::copyWidescreenBlur(int w, int h, const uint8_t *buf) {
-	assert(w == _screenW && h == _screenH);
-	void *ptr = 0;
-	int pitch = 0;
-	if (SDL_LockTexture(_widescreenTexture, 0, &ptr, &pitch) == 0) {
-		assert((pitch & 3) == 0);
-
-		uint32_t *src = (uint32_t *)malloc(w * h * sizeof(uint32_t));
-		uint32_t *tmp = (uint32_t *)malloc(w * h * sizeof(uint32_t));
-		uint32_t *dst = (uint32_t *)ptr;
-
-		if (src && tmp) {
-			for (int i = 0; i < w * h; ++i) {
-				src[i] = _rgbPalette[buf[i]];
-			}
-			static const int radius = 8;
-			blur_h(radius, src, w, w, h, _fmt, tmp, w);
-			blur_v(radius, tmp, w, w, h, _fmt, dst, pitch / sizeof(uint32_t));
-		}
-
-		free(src);
-		free(tmp);
-
-		SDL_UnlockTexture(_widescreenTexture);
-	}
 }
 
 void SystemStub_SDL::copyWidescreenCDi(int w, int h, const uint8_t *buf, const uint8_t *pal) {
-	uint32_t *rgb = (uint32_t *)malloc(w * h * sizeof(uint32_t));
-	if (rgb) {
-		for (int i = 0; i < w * h; ++i) {
-			const uint8_t *p = pal + buf[i] * 3;
-			const uint32_t color = SDL_MapRGB(_fmt, p[0], p[1], p[2]);
-			rgb[i] = color;
-		}
-		SDL_Rect r;
-		r.y = 0;
-		r.w = w;
-		r.h = h;
-		// left border
-		r.x = 0;
-		SDL_UpdateTexture(_widescreenTexture, &r, rgb, w * sizeof(uint32_t));
-		// right border
-		r.x = _screenW + w;
-		SDL_UpdateTexture(_widescreenTexture, &r, rgb, w * sizeof(uint32_t));
-		free(rgb);
-	}
 }
 
 void SystemStub_SDL::clearWidescreen() {
-	clearTexture(_widescreenTexture, _screenH, _clearColor);
 }
 
 void SystemStub_SDL::enableWidescreen(bool enable) {
-	_enableWidescreen = enable;
 }
 
 void SystemStub_SDL::fadeScreen() {
@@ -517,59 +306,56 @@ void SystemStub_SDL::fadeScreen() {
 }
 
 void SystemStub_SDL::updateScreen(int shakeOffset) {
-	if (_texW != _screenW || _texH != _screenH) {
-		void *dst = 0;
-		int pitch = 0;
-		if (SDL_LockTexture(_texture, 0, &dst, &pitch) == 0) {
-			assert((pitch & 3) == 0);
-			_scaler->scale(_scaleFactor, (uint32_t *)dst, pitch / sizeof(uint32_t), _screenBuffer, _screenW, _screenW, _screenH);
-			SDL_UnlockTexture(_texture);
-		}
-	} else {
-		SDL_UpdateTexture(_texture, 0, _screenBuffer, _screenW * sizeof(uint32_t));
-	}
-	SDL_RenderClear(_renderer);
-	if (_widescreenMode != kWidescreenNone) {
-		if (_enableWidescreen) {
-			// borders / background screen
-			SDL_RenderCopy(_renderer, _widescreenTexture, 0, 0);
-		}
-		// game screen
-		SDL_Rect r;
-		r.y = shakeOffset * _scaleFactor;
-		SDL_RenderGetLogicalSize(_renderer, &r.w, &r.h);
-		const int w = _screenW * _scaleFactor;
-		r.x = (r.w - w) / 2;
-		r.w = w;
-		SDL_RenderCopy(_renderer, _texture, &_texRect, &r);
-	} else {
-		if (_fadeOnUpdateScreen) {
-			SDL_SetRenderDrawBlendMode(_renderer, SDL_BLENDMODE_BLEND);
-			SDL_Rect r;
-			r.x = r.y = 0;
-			SDL_RenderGetLogicalSize(_renderer, &r.w, &r.h);
-			for (int i = 1; i <= 16; ++i) {
-				SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 256 - i * 16);
-				SDL_RenderCopy(_renderer, _texture, 0, 0);
-				SDL_RenderFillRect(_renderer, &r);
-				SDL_RenderPresent(_renderer);
-				SDL_Delay(30);
-			}
-			_fadeOnUpdateScreen = false;
-			SDL_SetRenderDrawBlendMode(_renderer, SDL_BLENDMODE_NONE);
-			return;
-		}
-		SDL_Rect r;
-		r.x = 0;
-		r.y = shakeOffset * _scaleFactor;
-		SDL_RenderGetLogicalSize(_renderer, &r.w, &r.h);
-		SDL_RenderCopy(_renderer, _texture, &_texRect, &r);
-	}
-	SDL_RenderPresent(_renderer);
-	_texRect.x = 0;
-	_texRect.y = 0;
-	_texRect.w = _texW;
-	_texRect.h = _texH;
+    GPU_Clear(_renderer);
+
+    GPU_UpdateImageBytes(_texture, NULL, (const uint8_t*)_screenBuffer, _screenW * sizeof(uint32_t));
+
+    // *** SHADER DRAW ***
+    GPU_ActivateShaderProgram(_shader, &_block);
+
+    int32_t w, h;
+    SDL_GetWindowSize(_window, &w, &h);
+
+    const float aspect = _screenW/float(_screenH);
+    const float scaleW = w/float(_screenW);
+    const float scaleH = h/float(_screenH);
+
+    GPU_Rect rect;
+    if (scaleW < scaleH) {
+        rect.w = w;
+        rect.h = w/aspect;
+        rect.x = 0;
+        rect.y = (h - rect.h)/2;
+    } else {
+        rect.w = h*aspect;
+        rect.h = h;
+        rect.x = (w - rect.w)/2;
+        rect.y = 0;
+    }
+
+    GPU_SetUniformf(GPU_GetUniformLocation(_shader, "trg_x"), (float)rect.x);
+    GPU_SetUniformf(GPU_GetUniformLocation(_shader, "trg_y"), (float)rect.y);
+    GPU_SetUniformf(GPU_GetUniformLocation(_shader, "trg_w"), (float)rect.w);
+    GPU_SetUniformf(GPU_GetUniformLocation(_shader, "trg_h"), (float)rect.h);
+    GPU_SetUniformf(GPU_GetUniformLocation(_shader, "scr_w"), (float)w);
+    GPU_SetUniformf(GPU_GetUniformLocation(_shader, "scr_h"), (float)h);
+
+    GPU_Blit(_texture, NULL, _renderer, 0, 0);
+
+    GPU_DeactivateShaderProgram();
+    // *******************
+
+    // Mask out the edges with black bars in fullscreen 16:9 mode
+    if (_fullscreen) {
+        float blackBarWidth = 45.8; // Show some of the extra emulated phosphors on the edges
+        float rightStartPos = (float)_screenW - blackBarWidth;
+
+        SDL_Color color = {0, 0, 0, 255};
+        GPU_RectangleFilled(_renderer, 0.0, 0.0, blackBarWidth, (float)_screenH, color);
+        GPU_RectangleFilled(_renderer, rightStartPos, 0.0, rightStartPos+blackBarWidth, (float)_screenH, color);
+    }
+
+    GPU_Flip(_renderer);
 }
 
 void SystemStub_SDL::processEvents() {
@@ -639,7 +425,7 @@ void SystemStub_SDL::processEvent(const SDL_Event &ev, bool &paused) {
 		break;
 	case SDL_JOYAXISMOTION:
 		if (_joystick) {
-			switch (ev.jaxis.axis) {
+			/*switch (ev.jaxis.axis) {
 			case 0:
 				_pi.dirMask &= ~(PlayerInput::DIR_RIGHT | PlayerInput::DIR_LEFT);
 				if (ev.jaxis.value > kJoystickCommitValue) {
@@ -656,7 +442,7 @@ void SystemStub_SDL::processEvent(const SDL_Event &ev, bool &paused) {
 					_pi.dirMask |= PlayerInput::DIR_UP;
 				}
 				break;
-			}
+			}*/
 		}
 		break;
 	case SDL_JOYBUTTONDOWN:
@@ -681,7 +467,7 @@ void SystemStub_SDL::processEvent(const SDL_Event &ev, bool &paused) {
 		break;
 	case SDL_CONTROLLERAXISMOTION:
 		if (_controller) {
-			switch (ev.caxis.axis) {
+			/*switch (ev.caxis.axis) {
 			case SDL_CONTROLLER_AXIS_LEFTX:
 			case SDL_CONTROLLER_AXIS_RIGHTX:
 				if (ev.caxis.value < -kJoystickCommitValue) {
@@ -708,7 +494,7 @@ void SystemStub_SDL::processEvent(const SDL_Event &ev, bool &paused) {
 					_pi.dirMask &= ~PlayerInput::DIR_DOWN;
 				}
 				break;
-			}
+			}*/
 		}
 		break;
 	case SDL_CONTROLLERBUTTONDOWN:
@@ -766,21 +552,6 @@ void SystemStub_SDL::processEvent(const SDL_Event &ev, bool &paused) {
 	case SDL_KEYUP:
 		if (ev.key.keysym.mod & KMOD_ALT) {
 			switch (ev.key.keysym.sym) {
-			case SDLK_RETURN:
-				changeGraphics(!_fullscreen, _scaleFactor);
-				break;
-			case SDLK_KP_PLUS:
-			case SDLK_PAGEUP:
-				if (_scalerType == kScalerTypeInternal || _scalerType == kScalerTypeExternal) {
-					changeGraphics(_fullscreen, _scaleFactor + 1);
-				}
-				break;
-			case SDLK_KP_MINUS:
-			case SDLK_PAGEDOWN:
-				if (_scalerType == kScalerTypeInternal || _scalerType == kScalerTypeExternal) {
-					changeGraphics(_fullscreen, _scaleFactor - 1);
-				}
-				break;
 			case SDLK_s: {
 					struct timeval tv;
 					gettimeofday(&tv, 0);
@@ -972,93 +743,67 @@ void SystemStub_SDL::unlockAudio() {
 	SDL_UnlockAudio();
 }
 
-static bool is16_9(const SDL_DisplayMode *mode) {
-	return (mode->w / (float)mode->h) >= (16 / 9.f);
-}
-
 void SystemStub_SDL::prepareGraphics() {
-	_texW = _screenW;
-	_texH = _screenH;
-	switch (_scalerType) {
-	case kScalerTypePoint:
-		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0"); // nearest pixel sampling
-		break;
-	case kScalerTypeLinear:
-		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // linear filtering
-		break;
-	case kScalerTypeInternal:
-	case kScalerTypeExternal:
-		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-		_texW *= _scaleFactor;
-		_texH *= _scaleFactor;
-		break;
-	}
-	_texRect.x = 0;
-	_texRect.y = 0;
-	_texRect.w = _texW;
-	_texRect.h = _texH;
-	int windowW = _screenW * _scaleFactor;
-	int windowH = _screenH * _scaleFactor;
-	int flags = 0;
-	if (_fullscreen) {
-		flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-	} else {
-		flags |= SDL_WINDOW_RESIZABLE;
-	}
-	if (0 /* && _widescreenMode == kWidescreenDefault */) {
-		SDL_DisplayMode dm;
-		if (SDL_GetDesktopDisplayMode(0, &dm) == 0 && is16_9(&dm)) {
-			_widescreenMode = kWidescreenBlur; // default widescreen mode
-		} else {
-			_widescreenMode = kWidescreenNone;
-                }
-	}
-	if (_widescreenMode == kWidescreenCDi) {
-		windowW = (_screenW + kWidescreenBorderCDiW * 2) * _scaleFactor;
-	} else if (_widescreenMode != kWidescreenNone) {
-		windowW = windowH * 16 / 9;
-	}
-	_window = SDL_CreateWindow(_caption, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowW, windowH, flags);
-	SDL_Surface *icon = SDL_LoadBMP(kIconBmp);
-	if (icon) {
-		SDL_SetWindowIcon(_window, icon);
-		SDL_FreeSurface(icon);
-	}
-	_renderer = SDL_CreateRenderer(_window, -1, SDL_RENDERER_ACCELERATED);
-	SDL_RenderSetLogicalSize(_renderer, windowW, windowH);
-	_texture = SDL_CreateTexture(_renderer, kPixelFormat, SDL_TEXTUREACCESS_STREAMING, _texW, _texH);
-	if (_widescreenMode != kWidescreenNone) {
-		int w = _screenH * 16 / 9;
-		// in blur mode, the background texture has the same dimensions as the game texture
-		// SDL stretches the texture to 16:9
-		if (_widescreenMode == kWidescreenBlur) {
-			w = _screenW;
-		} else if (_widescreenMode == kWidescreenCDi) {
-			w = _screenW + kWidescreenBorderCDiW * 2;
-		}
-		_widescreenTexture = SDL_CreateTexture(_renderer, kPixelFormat, SDL_TEXTUREACCESS_STREAMING, w, _screenH);
-		clearTexture(_widescreenTexture, _screenH, _clearColor);
+    //GPU_SetDebugLevel(GPU_DEBUG_LEVEL_MAX);
 
-		// left and right borders
-		_wideMargin = (w - _screenW) / 2;
-	}
-	if (_maximizeWindow) {
-		_maximizeWindow = false;
-		SDL_MaximizeWindow(_window);
-	}
+    int flags = 0;
+    if (_fullscreen) {
+        flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    }
+
+    flags |= SDL_WINDOW_OPENGL;
+    flags |= SDL_WINDOW_ALLOW_HIGHDPI;
+
+    int scale = 4; // Initial scale of non-fullscreen window
+
+	_window = SDL_CreateWindow(_caption, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, _screenW*scale, _screenH*scale, flags);
+
+    GPU_SetInitWindow(SDL_GetWindowID(_window));
+
+    GPU_SetPreInitFlags(GPU_INIT_DISABLE_VSYNC | GPU_INIT_REQUEST_COMPATIBILITY_PROFILE);
+
+    _renderer = GPU_Init(_screenW, _screenH, GPU_DEFAULT_INIT_FLAGS);
+
+    _texture = GPU_CreateImage(_screenW, _screenH, GPU_FORMAT_RGBA);
+
+    GPU_SetAnchor(_texture, 0, 0);
+    GPU_SetImageFilter(_texture, GPU_FILTER_NEAREST);
+
+    // *** SHADER SETUP ***
+    //GPU_Renderer* renderer = GPU_GetCurrentRenderer();
+    //debug(DBG_INFO, "shader_language: %i", renderer->shader_language);
+    //debug(DBG_INFO, "max_shader_version: %i", renderer->max_shader_version);
+
+    uint32_t vertex = GPU_LoadShader(GPU_VERTEX_SHADER, "vertex.shader");
+    if (!vertex) {
+        error("Failed to load vertex shader: %s", GPU_GetShaderMessage());
+    }
+
+    uint32_t pixel = GPU_LoadShader(GPU_PIXEL_SHADER, "pixel.shader");
+    if (!pixel) {
+        error("Failed to load pixel shader: %s", GPU_GetShaderMessage());
+    }
+
+    if (_shader) {
+        GPU_FreeShaderProgram(_shader);
+    }
+
+    _shader = GPU_LinkShaders(vertex, pixel);
+    if (_shader) {
+        _block = GPU_LoadShaderBlock(_shader, "gpu_Vertex", "gpu_TexCoord", "gpu_Color", "gpu_ModelViewProjectionMatrix");
+    } else {
+        error("Failed to link shader program: %s", GPU_GetShaderMessage());
+    }
+    // ********************
 }
 
 void SystemStub_SDL::cleanupGraphics() {
 	if (_texture) {
-		SDL_DestroyTexture(_texture);
+        GPU_FreeImage(_texture);
 		_texture = 0;
 	}
-	if (_widescreenTexture) {
-		SDL_DestroyTexture(_widescreenTexture);
-		_widescreenTexture = 0;
-	}
 	if (_renderer) {
-		SDL_DestroyRenderer(_renderer);
+        GPU_Quit();
 		_renderer = 0;
 	}
 	if (_window) {
@@ -1068,116 +813,12 @@ void SystemStub_SDL::cleanupGraphics() {
 }
 
 void SystemStub_SDL::changeGraphics(bool fullscreen, int scaleFactor) {
-	const int factor = _scaler ? CLIP(scaleFactor, _scaler->factorMin, _scaler->factorMax) : scaleFactor;
-	if (fullscreen == _fullscreen && factor == _scaleFactor) {
-		// no change
-		return;
-	}
-	_fullscreen = fullscreen;
-	_scaleFactor = factor;
-	cleanupGraphics();
-	prepareGraphics();
 }
 
 void SystemStub_SDL::setScaler(const ScalerParameters *parameters) {
-	static const struct {
-		const char *name;
-		int type;
-		const Scaler *scaler;
-	} scalers[] = {
-		{ "point", kScalerTypePoint, 0 },
-		{ "linear", kScalerTypeLinear, 0 },
-		{ "scale", kScalerTypeInternal, &_internalScaler },
-#ifdef USE_STATIC_SCALER
-		{ "nearest", kScalerTypeInternal, &scaler_nearest },
-		{ "tv2x", kScalerTypeInternal, &scaler_tv2x },
-		{ "xbr", kScalerTypeInternal, &scaler_xbr },
-#endif
-		{ 0, -1, 0 }
-	};
-	bool found = false;
-	for (int i = 0; scalers[i].name; ++i) {
-		if (strcmp(scalers[i].name, parameters->name) == 0) {
-			_scalerType = (ScalerType)scalers[i].type;
-			_scaler = scalers[i].scaler;
-			found = true;
-			break;
-		}
-	}
-	if (!found) {
-#ifdef _WIN32
-		static const char *libSuffix = "dll";
-#else
-		static const char *libSuffix = "so";
-#endif
-		char libname[64];
-		snprintf(libname, sizeof(libname), "scaler_%s.%s", parameters->name, libSuffix);
-		_scalerSo = SDL_LoadObject(libname);
-		if (!_scalerSo) {
-			warning("Scaler '%s' not found, using default", libname);
-		} else {
-			static const char *kSoSym = "getScaler";
-			void *symbol = SDL_LoadFunction(_scalerSo, kSoSym);
-			if (!symbol) {
-				warning("Symbol '%s' not found in '%s'", kSoSym, libname);
-			} else {
-				typedef const Scaler *(*GetScalerProc)();
-				const Scaler *scaler = ((GetScalerProc)symbol)();
-				const int tag = scaler ? scaler->tag : 0;
-				if (tag != SCALER_TAG) {
-					warning("Unexpected tag %d for scaler '%s'", tag, libname);
-				} else {
-					_scalerType = kScalerTypeExternal;
-					_scaler = scaler;
-				}
-			}
-		}
-	}
-	_scaleFactor = _scaler ? CLIP(parameters->factor, _scaler->factorMin, _scaler->factorMax) : parameters->factor;
 }
 
 void SystemStub_SDL::changeScaler(int scalerNum) {
-	ScalerType type = kScalerTypeInternal;
-	const Scaler *scaler = 0;
-	switch (scalerNum) {
-	case 0:
-		type = kScalerTypePoint;
-		break;
-	case 1:
-		type = kScalerTypeLinear;
-		break;
-	case 2:
-		type = kScalerTypeInternal;
-		scaler = &_internalScaler;
-		break;
-#ifdef USE_STATIC_SCALER
-	case 3:
-		type = kScalerTypeInternal;
-		scaler = &scaler_nearest;
-		break;
-	case 4:
-		type = kScalerTypeInternal;
-		scaler = &scaler_tv2x;
-		break;
-	case 5:
-		type = kScalerTypeInternal;
-		scaler = &scaler_xbr;
-		break;
-#endif
-	default:
-		return;
-	}
-	if (_scalerType != type || scaler != _scaler) {
-		_scalerType = type;
-		_scaler = scaler;
-		if (_scalerType == kScalerTypeInternal || _scalerType == kScalerTypeExternal) {
-			_scaleFactor = CLIP(_scaleFactor, _scaler->factorMin, _scaler->factorMax);
-		} else {
-			_scaleFactor = 1;
-		}
-		cleanupGraphics();
-		prepareGraphics();
-	}
 }
 
 void SystemStub_SDL::drawRect(int x, int y, int w, int h, uint8_t color) {

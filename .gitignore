@@ -1,0 +1,13 @@
+.DS_Store
+/.idea
+/SDL_gpu
+/stb_vorbis.c
+/build
+
+/DATA
+
+/Flashback.app/Contents/MacOS/rs
+/Flashback.app/Contents/libs/*.dylib
+/Flashback.app/Contents/Resources/rs.cfg
+/Flashback.app/Contents/Resources/DATA
+/Flashback.app/Contents/Resources/*.shader

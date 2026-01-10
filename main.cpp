@@ -21,7 +21,7 @@ static const char *USAGE =
 	"  --datapath=PATH   Path to data files (default 'DATA')\n"
 	"  --savepath=PATH   Path to save files (default '.')\n"
 	"  --levelnum=NUM    Start to level, bypass introduction\n"
-	"  --fullscreen      Fullscreen display\n"
+	"  --windowed        Windowed (4x) display\n"
 	"  --widescreen=MODE 16:9 display (adjacent,mirror,blur,none)\n"
 	"  --scaler=NAME@X   Graphics scaler (default 'scale@3')\n"
 	"  --language=LANG   Language (fr,en,de,sp,it,jp)\n"
@@ -144,7 +144,7 @@ static void initOptions() {
 		{ "fix_fmopl_e0_reg", &g_options.fix_fmopl_e0_reg },
 		{ 0, 0 }
 	};
-	static const char *filename = "rs.cfg";
+	static const char *filename = strcat(SDL_GetBasePath(), "rs.cfg");
 	FILE *fp = fopen(filename, "rb");
 	if (fp) {
 		char buf[256];
@@ -209,10 +209,10 @@ static WidescreenMode parseWidescreen(const char *mode) {
 }
 
 int main(int argc, char *argv[]) {
-	const char *dataPath = "DATA";
-	const char *savePath = ".";
+	const char *dataPath = strcat(SDL_GetBasePath(), "DATA");
+	const char *savePath = SDL_GetPrefPath("org.cyxdown", "fb");
 	int levelNum = 0;
-	bool fullscreen = false;
+	bool fullscreen = true;
 	bool maximizedWindow = false;
 	bool autoSave = false;
 	uint32_t cheats = 0;
@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
 			{ "datapath",   required_argument, 0, 1 },
 			{ "savepath",   required_argument, 0, 2 },
 			{ "levelnum",   required_argument, 0, 3 },
-			{ "fullscreen", no_argument,       0, 4 },
+			{ "windowed",   no_argument,       0, 4 },
 			{ "scaler",     required_argument, 0, 5 },
 			{ "language",   required_argument, 0, 6 },
 			{ "widescreen", required_argument, 0, 7 },
@@ -260,7 +260,7 @@ int main(int argc, char *argv[]) {
 			levelNum = atoi(optarg);
 			break;
 		case 4:
-			fullscreen = true;
+			fullscreen = false;
 			break;
 		case 5:
 			parseScaler(optarg, &scalerParameters);
