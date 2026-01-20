@@ -13,7 +13,7 @@
 #include <sys/param.h>
 #endif
 #ifdef USE_RWOPS
-#include <SDL_rwops.h>
+#include <SDL3/SDL_iostream.h>
 #endif
 #include "fs.h"
 #include "util.h"
@@ -165,9 +165,9 @@ bool FileSystem::exists(const char *filename) const {
 		return true;
 	}
 #ifdef USE_RWOPS
-	SDL_RWops *rw = SDL_RWFromFile(filename, "rb");
-	if (rw) {
-		SDL_RWclose(rw);
+	SDL_IOStream *io = SDL_IOFromFile(filename, "rb");
+	if (io) {
+		SDL_CloseIO(io);
 		return true;
 	}
 #endif

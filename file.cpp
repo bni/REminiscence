@@ -13,8 +13,8 @@
 #include "zlib.h"
 #endif
 #ifdef USE_RWOPS
-#include <SDL_filesystem.h>
-#include <SDL_rwops.h>
+#include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_iostream.h>
 #endif
 
 struct File_impl {
@@ -154,20 +154,20 @@ struct GzipFile : File_impl {
 
 #ifdef USE_RWOPS
 struct AssetFile: File_impl {
-	SDL_RWops *_rw;
-	AssetFile() : _rw(0) {}
+	SDL_IOStream *_io;
+	AssetFile() : _io(0) {}
 	bool prefixedOpen(const char *prefix, const char *name) {
 		char path[MAXPATHLEN];
 		snprintf(path, sizeof(path), "%s%s", prefix, name);
-		_rw = SDL_RWFromFile(path, "rb");
-		if (!_rw) {
+		_io = SDL_IOFromFile(path, "rb");
+		if (!_io) {
 			// try uppercase
 			char fixedPath[MAXPATHLEN];
 			{
 				int i = 0;
 				for (; path[i] && i < MAXPATHLEN - 1; ++i) {
 					fixedPath[i] = path[i];
-					if (i < strlen(prefix)) {
+					if (i < (int)strlen(prefix)) {
 						continue;
 					}
 					if (fixedPath[i] >= 'a' && fixedPath[i] <= 'z') {
@@ -176,37 +176,44 @@ struct AssetFile: File_impl {
 				}
 				fixedPath[i] = 0;
 			}
-			_rw = SDL_RWFromFile(fixedPath, "rb");
+			_io = SDL_IOFromFile(fixedPath, "rb");
 		}
-		return _rw != 0;
+		return _io != 0;
 	}
 	bool open(const char *path, const char *mode) {
 		_ioErr = false;
 		return prefixedOpen("", path) || prefixedOpen("/sdcard/flashback/", path);
 	}
 	void close() {
-		if (_rw) {
-			SDL_RWclose(_rw);
-			_rw = 0;
+		if (_io) {
+			SDL_CloseIO(_io);
+			_io = 0;
 		}
 	}
 	uint32_t size() {
-		if (_rw) {
-			return SDL_RWsize(_rw);
+		if (_io) {
+			return (uint32_t)SDL_GetIOSize(_io);
 		}
 		return 0;
 	}
 	void seek(int32_t off) {
-		if (_rw) {
-			SDL_RWseek(_rw, off, RW_SEEK_SET);
+		if (_io) {
+			SDL_SeekIO(_io, off, SDL_IO_SEEK_SET);
 		}
 	}
+	uint32_t tell() {
+		if (_io) {
+			return (uint32_t)SDL_TellIO(_io);
+		}
+		return 0;
+	}
 	uint32_t read(void *ptr, uint32_t len) {
-		if (_rw) {
-			const int count = SDL_RWread(_rw, ptr, 1, len);
+		if (_io) {
+			const size_t count = SDL_ReadIO(_io, ptr, len);
 			if (count != len) {
 				_ioErr = true;
 			}
+			return (uint32_t)count;
 		}
 		return 0;
 	}

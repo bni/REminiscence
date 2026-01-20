@@ -4,9 +4,10 @@
  * Copyright (C) 2005-2019 Gregory Montoir (cyx@users.sourceforge.net)
  */
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <ctype.h>
 #include <getopt.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #include "file.h"
 #include "fs.h"
@@ -144,7 +145,8 @@ static void initOptions() {
 		{ "fix_fmopl_e0_reg", &g_options.fix_fmopl_e0_reg },
 		{ 0, 0 }
 	};
-	static const char *filename = strcat(SDL_GetBasePath(), "rs.cfg");
+	static char filename[MAXPATHLEN];
+	snprintf(filename, sizeof(filename), "%srs.cfg", SDL_GetBasePath());
 	FILE *fp = fopen(filename, "rb");
 	if (fp) {
 		char buf[256];
@@ -209,7 +211,9 @@ static WidescreenMode parseWidescreen(const char *mode) {
 }
 
 int main(int argc, char *argv[]) {
-	const char *dataPath = strcat(SDL_GetBasePath(), "DATA");
+	static char dataPathBuf[MAXPATHLEN];
+	snprintf(dataPathBuf, sizeof(dataPathBuf), "%sDATA", SDL_GetBasePath());
+	const char *dataPath = dataPathBuf;
 	const char *savePath = SDL_GetPrefPath("org.cyxdown", "fb");
 	int levelNum = 0;
 	bool fullscreen = true;

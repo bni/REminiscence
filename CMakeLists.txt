@@ -1,22 +1,10 @@
 cmake_minimum_required(VERSION 3.19)
 project(REminiscence)
 
-find_package(SDL2 REQUIRED)
+find_package(SDL3 REQUIRED)
 find_package(OpenGL REQUIRED)
 
 add_definitions(-DUSE_MODPLUG -DUSE_STB_VORBIS -DUSE_ZLIB)
-
-find_path(
-        SDL_GPU_INCLUDE_DIR
-        NAMES SDL_gpu.h
-        PATHS ${PROJECT_SOURCE_DIR}/SDL_gpu/include/SDL2
-)
-
-find_library(
-        SDL_GPU_LIBRARY
-        NAMES libSDL2_gpu.a
-        PATHS ${PROJECT_SOURCE_DIR}/SDL_gpu/lib
-)
 
 find_path(
         MODPLUG_INCLUDE_DIR
@@ -39,9 +27,8 @@ find_library(
 )
 
 include_directories(
-        ${SDL2_INCLUDE_DIRS}
+        ${SDL3_INCLUDE_DIRS}
         ${OPENGL_INCLUDE_DIRS}
-        ${SDL_GPU_INCLUDE_DIR}
         ${MODPLUG_INCLUDE_DIR}
         ${ZLIB_INCLUDE_DIR}
 )
@@ -71,6 +58,7 @@ add_executable(
         resource_paq.cpp
         scaler.cpp
         screenshot.cpp
+        shader.cpp
         seq_player.cpp
         sfx_player.cpp
         staticres.cpp
@@ -80,20 +68,14 @@ add_executable(
         video.cpp
 )
 
-if (${APPLE})
-    set(CMAKE_EXE_LINKER_FLAGS -mmacosx-version-min=15.6)
-endif ()
-
 target_link_libraries(
         rs
-        ${SDL2_LIBRARIES}
+        ${SDL3_LIBRARIES}
         ${OPENGL_LIBRARIES}
-        ${SDL_GPU_LIBRARY}
         ${MODPLUG_LIBRARY}
         ${ZLIB_LIBRARY}
 )
 
 configure_file(rs.cfg rs.cfg COPYONLY)
-configure_file(pixel.shader pixel.shader COPYONLY)
-configure_file(vertex.shader vertex.shader COPYONLY)
+configure_file(shader.metal shader.metal COPYONLY)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/DATA/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/DATA/)
