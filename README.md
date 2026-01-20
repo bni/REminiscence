@@ -16,8 +16,7 @@ Delphine Software, makers of the 1992 game [Flashback](https://en.wikipedia.org/
 
 ## Build dependencies
 * CMake > 3.19
-* SDL2
-* [SDL_gpu](https://github.com/grimfang4/sdl-gpu) (You have to build from source)
+* SDL3
 * [libmodplug](http://modplug-xmms.sourceforge.net)
 * [stb_vorbis.c](https://github.com/nothings/stb/blob/master/stb_vorbis.c)
 * [zlib](https://www.zlib.net)

@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.19)
 project(REminiscence)
 
 find_package(SDL3 REQUIRED)
-find_package(OpenGL REQUIRED)
 
 add_definitions(-DUSE_MODPLUG -DUSE_STB_VORBIS -DUSE_ZLIB)
 
@@ -28,7 +27,6 @@ find_library(
 
 include_directories(
         ${SDL3_INCLUDE_DIRS}
-        ${OPENGL_INCLUDE_DIRS}
         ${MODPLUG_INCLUDE_DIR}
         ${ZLIB_INCLUDE_DIR}
 )
@@ -71,7 +69,6 @@ add_executable(
 target_link_libraries(
         rs
         ${SDL3_LIBRARIES}
-        ${OPENGL_LIBRARIES}
         ${MODPLUG_LIBRARY}
         ${ZLIB_LIBRARY}
 )
