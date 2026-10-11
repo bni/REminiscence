@@ -798,7 +798,7 @@ void SystemStub_SDL::prepareGraphics() {
 	_texRect.h = (float)_texH;
 	SDL_WindowFlags flags = 0;
 	if (_fullscreen) {
-		flags |= SDL_WINDOW_BORDERLESS | SDL_WINDOW_HIDDEN;
+		flags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIDDEN;
 		SDL_DisplayID display = SDL_GetPrimaryDisplay();
 		const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(display);
 		if (mode) {
