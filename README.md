@@ -26,13 +26,19 @@ Put data files from the original game in DATA/
 
 Use CMake to build the rs executable.
 
-`cmake -S . -B build -G Ninja`
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM=ninja -G Ninja -S . -B build
+```
 
-`cmake --build build`
+```bash
+cmake --build build --target all -j 6
+```
 
 To build Flashback.app (optional):
 
-`./build_app.sh`
+```bash
+./build_app.sh
+```
 
 ## Assets/DATA
 Requires DATA files from the original game, either DOS (Recommended) or Amiga (Not tested).
