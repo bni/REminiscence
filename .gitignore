@@ -1,9 +1,11 @@
 .DS_Store
 /.idea
 /stb_vorbis.c
+/opl3.*
 /build
 
 /DATA
+*.ROM
 
 /Flashback.app/Contents/MacOS/rs
 /Flashback.app/Contents/libs/*.dylib
