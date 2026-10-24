@@ -4,7 +4,7 @@
 /opl3.*
 /build
 
-/DATA
+/DATA*
 *.ROM
 
 /Flashback.app/Contents/MacOS/rs
